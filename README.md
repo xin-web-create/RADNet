@@ -34,13 +34,6 @@ RADNet is a **Retina-inspired CNN Architecture for Dehazing** designed to addres
 | MSBDN         | 33.67 / 0.985           | 33.48 / 0.982            |
 | **RADNet**    | **36.83 / 0.993**       | **32.61 / 0.980**        |
 
-### Real-World Paired Datasets
-
-| Method        | Dense-Haze (PSNR/SSIM) | O-HAZE (PSNR/SSIM) |
-|---------------|------------------------|--------------------|
-| DCP           | 11.48 / 0.301          | 16.78 / 0.601      |
-| FFA-Net       | 15.89 / 0.512          | 22.17 / 0.721      |
-| **RADNet**    | **16.89 / 0.607**      | **23.06 / 0.902**  |
 
 ---
 
@@ -48,11 +41,10 @@ RADNet is a **Retina-inspired CNN Architecture for Dehazing** designed to addres
 
 | Variant               | PSNR (dB) | SSIM   |
 |-----------------------|-----------|--------|
-| Baseline (w/o RFC, CSPCA, ON/OFF) | 15.92     | 0.552  |
 | w/o RFC               | 16.22     | 0.520  |
 | w/o CSPCA             | 16.16     | 0.531  |
 | w/o ON/OFF            | 15.99     | 0.567  |
-| **Full RADNet**       | **16.89** | **0.607** |
+| **Baseline**       | **16.89** | **0.607** |
 
 
 ---
