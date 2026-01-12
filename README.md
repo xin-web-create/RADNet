@@ -1,4 +1,4 @@
-# RADNet: Retina-inspired Dehazing Network
+# RADNet: Image dehazing network based on retinal neuromorphic inspiration
 
 
 RADNet is a **Retina-inspired CNN Architecture for Dehazing** designed to address three persistent challenges in single-image dehazing: texture/edge loss, non-uniform haze adaptation, and inconsistent restoration under mixed illumination. Inspired by the center-surround contrast encoding and parallel ON/OFF pathways of the retina, RADNet introduces three novel modules to enhance dehazing performance.
