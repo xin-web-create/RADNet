@@ -1,0 +1,47 @@
+# Example configuration file for RADNet
+# You can modify config.py directly or use this as reference
+
+# Model Configuration
+model:
+  name: 'RADNet'
+  in_channels: 3
+  out_channels: 3
+  base_channels: 64
+  num_blocks: 6
+
+# Training Configuration
+training:
+  batch_size: 16
+  num_epochs: 100
+  learning_rate: 0.0001
+  weight_decay: 0.0001
+  optimizer: 'Adam'
+  scheduler:
+    type: 'StepLR'
+    step_size: 30
+    gamma: 0.5
+
+# Data Configuration
+data:
+  train_dir: './data/train'
+  val_dir: './data/val'
+  test_dir: './data/test'
+  img_size: [256, 256]
+  num_workers: 4
+  pin_memory: true
+
+# Paths
+paths:
+  checkpoint_dir: './checkpoints'
+  log_dir: './logs'
+  result_dir: './results'
+
+# Training Settings
+settings:
+  save_interval: 10  # Save checkpoint every N epochs
+  val_interval: 5    # Validate every N epochs
+  device: 'cuda'     # 'cuda' or 'cpu'
+
+# Loss Configuration
+loss:
+  type: 'L1Loss'  # Options: L1Loss, MSELoss, or combination
