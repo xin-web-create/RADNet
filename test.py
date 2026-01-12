@@ -97,7 +97,7 @@ def main(args):
     print('Loading test data...')
     test_dataset = DehazingDataset(
         hazy_dir=args.test_hazy_dir,
-        clear_dir=args.test_clear_dir if os.path.exists(args.test_clear_dir) else None,
+        clear_dir=args.test_clear_dir if args.test_clear_dir and os.path.exists(args.test_clear_dir) else None,
         transform=get_val_transform(tuple(args.img_size)),
         img_size=tuple(args.img_size)
     )

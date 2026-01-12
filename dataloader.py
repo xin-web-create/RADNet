@@ -30,13 +30,13 @@ class DehazingDataset(Dataset):
             raise ValueError(f"Hazy image directory does not exist: {hazy_dir}")
         
         self.hazy_images = sorted([f for f in os.listdir(hazy_dir) 
-                                   if f.endswith(('.png', '.jpg', '.jpeg'))])
+                                   if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
         
         if clear_dir is not None:
             if not os.path.exists(clear_dir):
                 raise ValueError(f"Clear image directory does not exist: {clear_dir}")
             self.clear_images = sorted([f for f in os.listdir(clear_dir) 
-                                       if f.endswith(('.png', '.jpg', '.jpeg'))])
+                                       if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))])
         else:
             self.clear_images = None
             

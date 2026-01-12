@@ -103,7 +103,7 @@ def main(args):
     # Define loss and optimizer
     criterion = nn.L1Loss()
     optimizer = optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_step, gamma=args.scheduler_gamma)
     
     # Create dataloaders
     print('Loading data...')
@@ -192,6 +192,10 @@ if __name__ == '__main__':
                         help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4,
                         help='Weight decay')
+    parser.add_argument('--scheduler_step', type=int, default=30,
+                        help='Learning rate scheduler step size')
+    parser.add_argument('--scheduler_gamma', type=float, default=0.5,
+                        help='Learning rate scheduler gamma')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of data loading workers')
     parser.add_argument('--img_size', type=int, nargs=2, default=[256, 256],
