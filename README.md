@@ -37,18 +37,6 @@ RADNet is a **Retina-inspired CNN Architecture for Dehazing** designed to addres
 
 ---
 
-## 🔬 Ablation Study (Dense-Haze)
-
-| Variant               | PSNR (dB) | SSIM   |
-|-----------------------|-----------|--------|
-| w/o RFC               | 16.22     | 0.520  |
-| w/o CSPCA             | 16.16     | 0.531  |
-| w/o ON/OFF            | 15.99     | 0.567  |
-| **Baseline**       | **16.89** | **0.607** |
-
-
----
-
 ## 🙏 Acknowledgements
 
 This work is inspired by biological vision processing and builds upon prior research in CNN-based dehazing. We thank the authors of RESIDE, O-HAZE, and Dense-Haze for providing benchmark datasets.
