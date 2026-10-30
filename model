@@ -1,35 +1,38 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 from einops.layers.torch import Rearrange
 
 
 def default_conv(in_channels, out_channels, kernel_size, bias=True):
-    return nn.Conv2d(in_channels, out_channels, kernel_size,
-                     padding=(kernel_size // 2), bias=bias)
-
-
-class LayerNorm2d(nn.Module):
-    def __init__(self, dim, eps=1e-6):
-        super().__init__()
-        self.norm = nn.LayerNorm(dim, eps=eps)
-
-    def forward(self, x):
-        x = x.permute(0, 2, 3, 1)
-        x = self.norm(x)
-        x = x.permute(0, 3, 1, 2)
-        return x
+    return nn.Conv2d(
+        in_channels,
+        out_channels,
+        kernel_size,
+        padding=(kernel_size // 2),
+        bias=bias,
+    )
 
 
 class ONConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
-        super(ONConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                              stride=stride, padding=padding, bias=True)
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=True,
+        )
         with torch.no_grad():
             center = kernel_size // 2
-            kernel = torch.full((kernel_size, kernel_size), -1 / (kernel_size ** 2 - 1))
+            kernel = torch.full(
+                (kernel_size, kernel_size),
+                -1 / (kernel_size ** 2 - 1),
+            )
             kernel[center, center] = 2.0
             kernel = kernel.expand(out_channels, in_channels, -1, -1)
             self.conv.weight.copy_(kernel)
@@ -42,12 +45,21 @@ class ONConv(nn.Module):
 
 class OFFConv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3, stride=1, padding=1):
-        super(OFFConv, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
-                              stride=stride, padding=padding, bias=True)
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size,
+            stride=stride,
+            padding=padding,
+            bias=True,
+        )
         with torch.no_grad():
             center = kernel_size // 2
-            kernel = torch.full((kernel_size, kernel_size), 0.5 / (kernel_size ** 2 - 1))
+            kernel = torch.full(
+                (kernel_size, kernel_size),
+                0.5 / (kernel_size ** 2 - 1),
+            )
             kernel[center, center] = -1.5
             kernel = kernel.expand(out_channels, in_channels, -1, -1)
             self.conv.weight.copy_(kernel)
@@ -58,74 +70,96 @@ class OFFConv(nn.Module):
 
 
 class Conv2d_cd(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size=3, stride=1,
-                 padding=1, dilation=1, groups=1, bias=True):
-        super(Conv2d_cd, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size,
-                              stride=stride, padding=padding, dilation=dilation,
-                              groups=groups, bias=bias)
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=3,
+        stride=1,
+        padding=1,
+        dilation=1,
+        groups=1,
+        bias=True,
+        theta=0.7,
+    ):
+        super().__init__()
+        self.conv = nn.Conv2d(
+            in_channels,
+            out_channels,
+            kernel_size=kernel_size,
+            stride=stride,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            bias=bias,
+        )
+        self.theta = theta
         self.kernel_size = kernel_size
 
     def forward(self, x):
+        if math.fabs(self.theta) < 1e-8:
+            return self.conv(x)
         conv_weight = self.conv.weight
         kernel_cd = conv_weight.clone()
         center = self.kernel_size // 2
-        kernel_cd[:, :, center, center] = conv_weight[:, :, center, center] - torch.sum(
-            conv_weight, dim=(2, 3))
-        out = F.conv2d(x, kernel_cd, bias=self.conv.bias,
-                       stride=self.conv.stride, padding=self.conv.padding,
-                       dilation=self.conv.dilation, groups=self.conv.groups)
-        return out
+        kernel_cd[:, :, center, center] = (
+            conv_weight[:, :, center, center]
+            - torch.sum(conv_weight, dim=(2, 3))
+        )
+        return F.conv2d(
+            x,
+            kernel_cd,
+            bias=self.conv.bias,
+            stride=self.conv.stride,
+            padding=self.conv.padding,
+            dilation=self.conv.dilation,
+            groups=self.conv.groups,
+        )
 
 
-class RFConv(nn.Module):
+class NFConv(nn.Module):
     def __init__(self, dim):
-        super(RFConv, self).__init__()
-        self.dim = dim
+        super().__init__()
         self.on_conv = ONConv(dim, dim)
         self.off_conv = OFFConv(dim, dim)
         self.cd_conv = Conv2d_cd(dim, dim)
         self.normal_conv = nn.Conv2d(dim, dim, 3, padding=1, bias=True)
-        self.register_buffer('weights', torch.tensor([0.1, 0.1, 0.1, 0.7]))
+        self.register_buffer("weights", torch.tensor([0.1, 0.1, 0.1, 0.7]))
 
     def forward(self, x):
         identity = x
-        on_out = self.on_conv(x)
-        off_out = self.off_conv(x)
-        cd_out = self.cd_conv(x)
-        normal_out = self.normal_conv(x)
         w = self.weights
-        combined = (w[0] * on_out + w[1] * off_out +
-                    w[2] * cd_out + w[3] * normal_out)
-        out = combined + identity
-        return out
+        combined = (
+            w[0] * self.on_conv(x)
+            + w[1] * self.off_conv(x)
+            + w[2] * self.cd_conv(x)
+            + w[3] * self.normal_conv(x)
+        )
+        return combined + identity
 
 
 class SpatialAttention(nn.Module):
     def __init__(self, dim):
-        super(SpatialAttention, self).__init__()
+        super().__init__()
         self.dc1 = nn.Conv2d(2, 1, 3, padding=1, dilation=1, bias=True)
         self.dc3 = nn.Conv2d(2, 1, 3, padding=3, dilation=3, bias=True)
         self.dc5 = nn.Conv2d(2, 1, 3, padding=5, dilation=5, bias=True)
         self.conv1x1 = nn.Conv2d(3, 1, 1, bias=True)
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x_avg = torch.mean(x, dim=1, keepdim=True)
         x_max, _ = torch.max(x, dim=1, keepdim=True)
         x2 = torch.cat([x_avg, x_max], dim=1)
-        dc1_out = self.dc1(x2)
-        dc3_out = self.dc3(x2)
-        dc5_out = self.dc5(x2)
-        dc_concat = torch.cat([dc1_out, dc3_out, dc5_out], dim=1)
-        sattn = self.conv1x1(dc_concat)
-        sattn = self.sigmoid(sattn)
-        return sattn
+        dc_concat = torch.cat(
+            [self.dc1(x2), self.dc3(x2), self.dc5(x2)],
+            dim=1,
+        )
+        return torch.sigmoid(self.conv1x1(dc_concat))
 
 
 class ChannelAttention(nn.Module):
     def __init__(self, dim, reduction=8):
-        super(ChannelAttention, self).__init__()
+        super().__init__()
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.gap_branch = nn.Sequential(
             nn.Conv2d(dim, dim // reduction, 1, bias=True),
@@ -136,21 +170,16 @@ class ChannelAttention(nn.Module):
             nn.Conv2d(dim, dim, 3, padding=1, groups=dim, bias=True),
             nn.Conv2d(dim, dim, 1, bias=True),
         )
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        gap_out = self.gap(x)
-        gap_attn = self.gap_branch(gap_out)
-        ds_attn = self.ds_conv(x)
-        ds_attn = torch.mean(ds_attn, dim=[2, 3], keepdim=True)
-        cattn = gap_attn + ds_attn
-        cattn = self.sigmoid(cattn)
-        return cattn
+        gap_attn = self.gap_branch(self.gap(x))
+        ds_attn = torch.mean(self.ds_conv(x), dim=[2, 3], keepdim=True)
+        return torch.sigmoid(gap_attn + ds_attn)
 
 
 class PixelAttention(nn.Module):
     def __init__(self, dim):
-        super(PixelAttention, self).__init__()
+        super().__init__()
         if dim % 8 == 0:
             groups = 8
         elif dim % 16 == 0:
@@ -159,27 +188,32 @@ class PixelAttention(nn.Module):
             groups = 32
         else:
             groups = math.gcd(dim, 8)
-        self.groups = groups
-        self.channel_shuffle = Rearrange('b (g c) h w -> b (c g) h w', g=groups)
-        self.group_conv = nn.Conv2d(2 * dim, dim, 7, padding=3, groups=dim, bias=True)
-        self.sigmoid = nn.Sigmoid()
+        self.channel_shuffle = Rearrange(
+            "b (g c) h w -> b (c g) h w",
+            g=groups,
+        )
+        self.group_conv = nn.Conv2d(
+            2 * dim,
+            dim,
+            7,
+            padding=3,
+            groups=dim,
+            bias=True,
+        )
 
     def forward(self, x, pattn1):
-        B, C, H, W = x.shape
         x_expanded = x.unsqueeze(dim=2)
         pattn1_expanded = pattn1.unsqueeze(dim=2)
         combined = torch.cat([x_expanded, pattn1_expanded], dim=2)
-        combined = Rearrange('b c t h w -> b (c t) h w')(combined)
+        combined = Rearrange("b c t h w -> b (c t) h w")(combined)
         shuffled = self.channel_shuffle(combined)
-        pattn2 = self.group_conv(shuffled)
-        pattn2 = self.sigmoid(pattn2)
-        return pattn2
+        return torch.sigmoid(self.group_conv(shuffled))
 
 
 class CSPCA(nn.Module):
     def __init__(self, conv, dim, kernel_size, reduction=8):
-        super(CSPCA, self).__init__()
-        self.conv1 = RFConv(dim)
+        super().__init__()
+        self.conv1 = NFConv(dim)
         self.act1 = nn.ReLU(inplace=True)
         self.conv2 = conv(dim, dim, kernel_size, bias=True)
         self.bn1 = nn.BatchNorm2d(dim)
@@ -197,33 +231,40 @@ class CSPCA(nn.Module):
         res = self.bn2(res)
         cattn = self.ca(res)
         sattn = self.sa(res)
-        pattn1 = sattn + cattn
-        pattn2 = self.pa(res, pattn1)
-        res = res * pattn2
-        res = res + x
-        return res
+        pattn2 = self.pa(res, sattn + cattn)
+        return res * pattn2 + x
 
 
 class HorizontalCellTrain(nn.Module):
-    def __init__(self, dim):
-        super(HorizontalCellTrain, self).__init__()
-        self.pre_norm = LayerNorm2d(dim)
-        self.rfc = RFConv(dim)
+    def __init__(self, dim, groups=1, eps=1e-5):
+        super().__init__()
+        self.groups = groups
+        self.groups_dim = dim // groups
+        self.eps = eps
+        self.pre_norm = nn.GroupNorm(
+            num_groups=min(4, dim // 4),
+            num_channels=dim,
+        )
+        self.nf_conv = NFConv(dim)
+        self.residual_scale = nn.Parameter(torch.ones(1))
 
     def forward(self, x):
-        return self.rfc(self.pre_norm(x))
+        identity = x
+        x = self.pre_norm(x)
+        x = self.nf_conv(x)
+        return identity + self.residual_scale * x
 
 
 class ProcessingBranch(nn.Module):
     def __init__(self, channels, base_dim):
         super().__init__()
         self.seq = nn.Sequential(
-            nn.Conv2d(channels, base_dim, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(channels, base_dim, 3, padding=1, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(base_dim, base_dim, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(base_dim, base_dim, 3, padding=1, bias=False),
             nn.ReLU(inplace=True),
-            nn.Conv2d(base_dim, base_dim, kernel_size=3, padding=1, bias=False),
-            nn.ReLU(inplace=True)
+            nn.Conv2d(base_dim, base_dim, 3, padding=1, bias=False),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -232,100 +273,143 @@ class ProcessingBranch(nn.Module):
 
 class SKFusion(nn.Module):
     def __init__(self, dim, height=2, reduction=8):
-        super(SKFusion, self).__init__()
+        super().__init__()
         self.height = height
         d = max(int(dim / reduction), 4)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.mlp = nn.Sequential(
             nn.Conv2d(dim, d, 1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(d, dim * height, 1, bias=False)
+            nn.Conv2d(d, dim * height, 1, bias=False),
         )
         self.softmax = nn.Softmax(dim=1)
 
     def forward(self, *in_feats):
         in_feats = list(in_feats)
-        if len(in_feats) > 0:
-            target_h, target_w = in_feats[0].shape[2], in_feats[0].shape[3]
-            for i in range(1, len(in_feats)):
-                current_h, current_w = in_feats[i].shape[2], in_feats[i].shape[3]
-                if current_h != target_h or current_w != target_w:
-                    in_feats[i] = F.interpolate(
-                        in_feats[i], size=(target_h, target_w),
-                        mode='bilinear', align_corners=False)
-        B, C, H, W = in_feats[0].shape
-        in_feats = torch.cat(in_feats, dim=1)
-        in_feats = in_feats.view(B, self.height, C, H, W)
+        target_h, target_w = in_feats[0].shape[2], in_feats[0].shape[3]
+        for i in range(1, len(in_feats)):
+            if in_feats[i].shape[2:] != (target_h, target_w):
+                in_feats[i] = F.interpolate(
+                    in_feats[i],
+                    size=(target_h, target_w),
+                    mode="bilinear",
+                    align_corners=False,
+                )
+        b, c, h, w = in_feats[0].shape
+        in_feats = torch.cat(in_feats, dim=1).view(b, self.height, c, h, w)
         feats_sum = torch.sum(in_feats, dim=1)
         attn = self.mlp(self.avg_pool(feats_sum))
-        attn = self.softmax(attn.view(B, self.height, C, 1, 1))
-        out = torch.sum(in_feats * attn, dim=1)
-        return out
+        attn = self.softmax(attn.view(b, self.height, c, 1, 1))
+        return torch.sum(in_feats * attn, dim=1)
 
 
 class OnOffFusion(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.fusion_conv = nn.Sequential(
-            nn.Conv2d(dim * 2, dim, kernel_size=1, stride=1, padding=0),
+            nn.Conv2d(dim * 2, dim, 1),
             nn.BatchNorm2d(dim),
             nn.ReLU(inplace=True),
-            nn.Conv2d(dim, dim, kernel_size=3, padding=1, groups=dim)
+            nn.Conv2d(dim, dim, 3, padding=1, groups=dim),
         )
         self.attn = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(dim, dim // 4, kernel_size=1),
+            nn.Conv2d(dim, dim // 4, 1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(dim // 4, dim * 2, kernel_size=1),
-            nn.Sigmoid()
+            nn.Conv2d(dim // 4, dim * 2, 1),
+            nn.Sigmoid(),
         )
 
     def forward(self, on, off):
         weights = self.attn(on + off)
         w_on, w_off = torch.split(weights, on.size(1), dim=1)
-        out_on = on * w_on
-        out_off = off * w_off
-        fused = self.fusion_conv(torch.cat([out_on, out_off], dim=1))
+        fused = self.fusion_conv(torch.cat([on * w_on, off * w_off], dim=1))
         return fused + on
 
 
 class RADNet(nn.Module):
-    def __init__(self, base_dim=32, num_blocks=(2, 2, 2, 1)):
-        super(RADNet, self).__init__()
-        self.base_dim = base_dim
-
+    def __init__(self, base_dim=32, num_blocks=[2, 2, 2, 1]):
+        super().__init__()
         self.processing_branch = ProcessingBranch(3, base_dim=base_dim)
-
         self.down1 = nn.Sequential(
-            nn.Conv2d(base_dim, base_dim * 2, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(True))
+            nn.Conv2d(base_dim, base_dim * 2, 3, 2, 1),
+            nn.ReLU(True),
+        )
         self.down2 = nn.Sequential(
-            nn.Conv2d(base_dim * 2, base_dim * 4, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(True))
+            nn.Conv2d(base_dim * 2, base_dim * 4, 3, 2, 1),
+            nn.ReLU(True),
+        )
         self.down3 = nn.Sequential(
-            nn.Conv2d(base_dim * 4, base_dim * 8, kernel_size=3, stride=2, padding=1),
-            nn.ReLU(True))
-
+            nn.Conv2d(base_dim * 4, base_dim * 8, 3, 2, 1),
+            nn.ReLU(True),
+        )
         self.down_level1_blocks = nn.ModuleList(
-            [HorizontalCellTrain(base_dim) for _ in range(num_blocks[0])])
+            [HorizontalCellTrain(base_dim, 3) for _ in range(num_blocks[0])]
+        )
+        self.fe_level_3 = nn.Conv2d(
+            base_dim * 2,
+            base_dim * 2,
+            3,
+            1,
+            1,
+        )
         self.level3_blocks = nn.ModuleList(
-            [HorizontalCellTrain(base_dim * 2) for _ in range(num_blocks[1])])
+            [HorizontalCellTrain(base_dim * 2, 3) for _ in range(num_blocks[1])]
+        )
+        self.fe_level_2 = nn.Conv2d(
+            base_dim * 4,
+            base_dim * 4,
+            3,
+            1,
+            1,
+        )
         self.down_level2_blocks = nn.ModuleList(
-            [CSPCA(default_conv, base_dim * 4, 3) for _ in range(num_blocks[2])])
+            [CSPCA(default_conv, base_dim * 4, 3) for _ in range(num_blocks[2])]
+        )
+        self.fe_level_4 = nn.Conv2d(
+            base_dim * 8,
+            base_dim * 8,
+            3,
+            1,
+            1,
+        )
         self.down_level4_blocks = nn.ModuleList(
-            [CSPCA(default_conv, base_dim * 8, 3) for _ in range(num_blocks[3])])
-
+            [CSPCA(default_conv, base_dim * 8, 3) for _ in range(num_blocks[3])]
+        )
         self.up0 = nn.Sequential(
-            nn.ConvTranspose2d(base_dim * 8, base_dim * 4, 3, 2, 1, output_padding=1),
-            nn.ReLU(True))
+            nn.ConvTranspose2d(
+                base_dim * 8,
+                base_dim * 4,
+                3,
+                2,
+                1,
+                output_padding=1,
+            ),
+            nn.ReLU(True),
+        )
         self.up1 = nn.Sequential(
-            nn.ConvTranspose2d(base_dim * 4, base_dim * 2, 3, 2, 1, output_padding=1),
-            nn.ReLU(True))
+            nn.ConvTranspose2d(
+                base_dim * 4,
+                base_dim * 2,
+                3,
+                2,
+                1,
+                output_padding=1,
+            ),
+            nn.ReLU(True),
+        )
         self.up2 = nn.Sequential(
-            nn.ConvTranspose2d(base_dim * 2, base_dim, 3, 2, 1, output_padding=1),
-            nn.ReLU(True))
+            nn.ConvTranspose2d(
+                base_dim * 2,
+                base_dim,
+                3,
+                2,
+                1,
+                output_padding=1,
+            ),
+            nn.ReLU(True),
+        )
         self.up3 = nn.Conv2d(base_dim, 3, 3, 1, 1)
-
         self.mix1 = SKFusion(base_dim * 4, reduction=8)
         self.mix2 = SKFusion(base_dim * 2, reduction=4)
         self.onoffusion1 = OnOffFusion(base_dim * 2)
@@ -334,77 +418,59 @@ class RADNet(nn.Module):
 
     def forward(self, x):
         de_x = x
-        x_inp = x
-        x_inv = 1.0 - x
-
-        processed_on = self.processing_branch(x_inp)
-        processed_off = self.processing_branch(x_inv)
+        processed_x = self.processing_branch(x)
+        processed_x_inv = self.processing_branch(1.0 - x)
 
         for block in self.down_level1_blocks:
-            processed_on = block(processed_on)
+            processed_x = block(processed_x)
         for block in self.down_level1_blocks:
-            processed_off = block(processed_off)
+            processed_x_inv = block(processed_x_inv)
 
-        x_down1_on = self.down1(processed_on)
-        x_down1_off = self.down1(processed_off)
-
-        x_curr_on = x_down1_on
+        x_down1 = self.down1(processed_x)
+        x_curr = self.fe_level_3(x_down1)
         for block in self.level3_blocks:
-            x_curr_on = block(x_curr_on)
-        x4 = x_curr_on
+            x_curr = block(x_curr)
+        x4 = x_curr
 
-        x_curr_off = x_down1_off
+        x_down11 = self.down1(processed_x_inv)
+        x_curr = self.fe_level_3(x_down11)
         for block in self.level3_blocks:
-            x_curr_off = block(x_curr_off)
-        x24 = x_curr_off
+            x_curr = block(x_curr)
+        x24 = x_curr
 
         onoff1 = self.onoffusion1(x4, x24)
 
-        x_down2_on = self.down2(x4)
-        x_curr_on = x_down2_on
+        x_down2 = self.down2(x4)
+        x_curr = self.fe_level_2(x_down2)
         for block in self.down_level2_blocks:
-            x_curr_on = block(x_curr_on)
-        x_bipolar_on = x_down2_on + x_curr_on
+            x_curr = block(x_curr)
+        x_down1_init = x_down2 + x_curr
 
-        x_down2_off = self.down2(x24)
-        x_curr_off = x_down2_off
+        x_down21 = self.down2(x24)
+        x_curr = self.fe_level_2(x_down21)
         for block in self.down_level2_blocks:
-            x_curr_off = block(x_curr_off)
-        x_bipolar_off = x_down2_off + x_curr_off
+            x_curr = block(x_curr)
+        x_down21_init = x_down21 + x_curr
 
-        onoff2 = self.onoffusion2(x_bipolar_on, x_bipolar_off)
+        onoff2 = self.onoffusion2(x_down1_init, x_down21_init)
 
-        x_down3_on = self.down3(x_bipolar_on)
-        x_curr_on = x_down3_on
+        x_down3 = self.down3(x_down1_init)
+        x_curr = self.fe_level_4(x_down3)
         for block in self.down_level4_blocks:
-            x_curr_on = block(x_curr_on)
-        x_ganglion_on = x_down3_on + x_curr_on
+            x_curr = block(x_curr)
+        x_down3_8 = x_curr + x_down3
 
-        x_down3_off = self.down3(x_bipolar_off)
-        x_curr_off = x_down3_off
+        x_down31 = self.down3(x_down21_init)
+        x_curr = self.fe_level_4(x_down31)
         for block in self.down_level4_blocks:
-            x_curr_off = block(x_curr_off)
-        x_ganglion_off = x_down3_off + x_curr_off
+            x_curr = block(x_curr)
+        x_down3_28 = x_curr + x_down31
 
-        onoff3 = self.onoffusion3(x_ganglion_on, x_ganglion_off)
+        onoff3 = self.onoffusion3(x_down3_8, x_down3_28)
 
         x_up1 = self.up0(onoff3)
         x_level4_mix = self.mix1(onoff2, x_up1)
         x_up2 = self.up1(x_level4_mix)
         x_level2_mix = self.mix2(onoff1, x_up2)
         x_up2 = self.up2(x_level2_mix)
-        out = self.up3(x_up2)
-
-        out = de_x + out
-        return out
-
-
-if __name__ == "__main__":
-    model = RADNet(base_dim=32, num_blocks=(2, 2, 2, 1))
-    model.eval()
-    x = torch.randn(1, 3, 256, 256)
-    with torch.no_grad():
-        y = model(x)
-    total = sum(p.numel() for p in model.parameters())
-    print("output shape:", tuple(y.shape))
-    print("params:", round(total / 1e6, 4), "M")
+        return torch.sigmoid(de_x + self.up3(x_up2))
