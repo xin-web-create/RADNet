@@ -117,7 +117,7 @@ class Conv2d_cd(nn.Module):
         )
 
 
-class NFConv(nn.Module):
+class RFConv(nn.Module):
     def __init__(self, dim):
         super().__init__()
         self.on_conv = ONConv(dim, dim)
@@ -213,7 +213,7 @@ class PixelAttention(nn.Module):
 class CSPCA(nn.Module):
     def __init__(self, conv, dim, kernel_size, reduction=8):
         super().__init__()
-        self.conv1 = NFConv(dim)
+        self.conv1 = RFConv(dim)
         self.act1 = nn.ReLU(inplace=True)
         self.conv2 = conv(dim, dim, kernel_size, bias=True)
         self.bn1 = nn.BatchNorm2d(dim)
@@ -245,7 +245,7 @@ class HorizontalCellTrain(nn.Module):
             num_groups=min(4, dim // 4),
             num_channels=dim,
         )
-        self.nf_conv = NFConv(dim)
+        self.nf_conv = RFConv(dim)
         self.residual_scale = nn.Parameter(torch.ones(1))
 
     def forward(self, x):
